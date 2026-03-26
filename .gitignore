@@ -1,0 +1,7 @@
+node_modules/
+.env
+.DS_Store
+.max/
+data/audio/cache/
+logs/
+*.db
