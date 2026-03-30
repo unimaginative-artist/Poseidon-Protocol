@@ -31,4 +31,57 @@ export class Poseidon {
             tagged: `${prefix} ${text}`
         };
     }
+
+    /**
+     * Verification gate — before a claim can be TRUE, the falsifying
+     * test must be explicitly defined and must pass.
+     *
+     * Prevents the "confident without checking" failure mode where an
+     * LLM self-reports high confidence on a claim it never verified.
+     *
+     * Usage:
+     *   const result = await poseidon.verify(
+     *     'The dist was rebuilt successfully',
+     *     {
+     *       falsificationTest: 'Read dist/index.html — does it reference the new hash?',
+     *       testResult: actualIndexHtml.includes('index-D0n1krMq')
+     *     }
+     *   );
+     *
+     * If falsificationTest is missing → forced UNCERTAIN (can't self-certify)
+     * If testResult is false/falsy  → FALSE (claim failed its own check)
+     * If testResult is true         → TRUE (externally verified)
+     */
+    async verify(claim, { falsificationTest, testResult } = {}) {
+        // No test defined — the agent is trying to self-certify. Block it.
+        if (!falsificationTest) {
+            return {
+                state: 'UNCERTAIN',
+                prefix: '|',
+                original: claim,
+                tagged: `| ${claim}`,
+                reason: 'No falsification test provided — TRUE requires an external check'
+            };
+        }
+
+        // Test was defined but failed — claim is false.
+        if (!testResult) {
+            return {
+                state: 'FALSE',
+                prefix: '\\',
+                original: claim,
+                tagged: `\\ ${claim}`,
+                reason: `Falsification test failed: "${falsificationTest}"`
+            };
+        }
+
+        // Test defined and passed — now TRUE is earned, not assumed.
+        return {
+            state: 'TRUE',
+            prefix: '/',
+            original: claim,
+            tagged: `/ ${claim}`,
+            reason: `Verified via: "${falsificationTest}"`
+        };
+    }
 }

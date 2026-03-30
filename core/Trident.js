@@ -26,6 +26,7 @@ INPUT: ${text}
 Prong 1: DECOMPOSITION (Split into 3-5 subsystems)
 Prong 2: INTERFACE MAPPING (Define data/control boundaries)
 Prong 3: FAILURE MODELING (Identify risks and recovery paths)
+Prong 4: VERIFICATION GATES (For each key claim or action, define the falsification test that would prove it wrong, and what observable evidence confirms it passed)
 
 Return ONLY JSON:
 {
@@ -33,6 +34,7 @@ Return ONLY JSON:
   "subsystems": [ { "name": "...", "role": "..." } ],
   "interfaces": [ { "from": "...", "to": "...", "type": "..." } ],
   "failures": [ { "subsystem": "...", "risks": [], "mitigation": "..." } ],
+  "verificationGates": [ { "claim": "...", "falsificationTest": "...", "evidence": "..." } ],
   "synthesis": "Brief overall system architecture"
 }`;
 
