@@ -5,7 +5,11 @@
 
 import { Odyssey, STATUS } from '../core/Odyssey.js';
 import fs                  from 'fs';
+import os                  from 'os';
 import path                from 'path';
+
+const TEMP_VOYAGES = path.join(os.tmpdir(), `poseidon-test-${Date.now()}`);
+fs.mkdirSync(TEMP_VOYAGES, { recursive: true });
 
 let passed = 0, failed = 0;
 
@@ -13,16 +17,18 @@ function test(name, fn) {
     try { fn(); console.log(`  ✓  ${name}`); passed++; }
     catch (err) { console.log(`  ✗  ${name}\n     ${err.message}`); failed++; }
 }
+async function testAsync(name, fn) {
+    try { await fn(); console.log(`  ✓  ${name}`); passed++; }
+    catch (err) { console.log(`  ✗  ${name}\n     ${err.message}`); failed++; }
+}
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'Assertion failed'); }
 
-// Clean slate
-const VID = 'test-voyage-001';
-const vDir = path.resolve(process.cwd(), 'voyages', VID);
-if (fs.existsSync(vDir)) fs.rmSync(vDir, { recursive: true });
+const VID  = 'test-voyage-001';
+const vDir = path.join(TEMP_VOYAGES, VID);
 
 console.log('\n── Odyssey Navigator Tests ───────────────────────────────');
 
-const o = new Odyssey();
+const o = new Odyssey({ voyagesDir: TEMP_VOYAGES });
 
 test('define() creates a voyage with milestones', () => {
     const v = o.define(VID, 'Test Voyage', [
@@ -44,13 +50,16 @@ test('getUnblocked() returns only m1 initially', () => {
     assert(u.length === 1 && u[0].id === 'm1', `expected [m1], got ${u.map(m=>m.id)}`);
 });
 
-test('advance() docked→sailing returns state |', () => {
-    const r = o.advance(VID, 'm1', {});
+await testAsync('advance() docked→sailing returns state |', async () => {
+    const r = await o.advance(VID, 'm1', {});
     assert(r.state === '|', `expected |, got ${r.state}`);
 });
 
-test('advance() sailing→arrived returns state /', () => {
-    const r = o.advance(VID, 'm1', { success: true, output: 'done', verificationPassed: true });
+await testAsync('advance() sailing→arrived returns state /', async () => {
+    const r = await o.advance(VID, 'm1', {
+        success: true, output: 'done',
+        falsificationTest: 'check output exists', verificationPassed: true,
+    });
     assert(r.state === '/', `expected /, got ${r.state}`);
 });
 
@@ -71,14 +80,14 @@ test('m2 and m3 unblocked after m1 arrived', () => {
     assert(ids.includes('m2') && ids.includes('m3'), `expected m2+m3, got ${ids}`);
 });
 
-test('blocked milestone returns state \\', () => {
-    const r = o.advance(VID, 'm4', {});
+await testAsync('blocked milestone returns state \\', async () => {
+    const r = await o.advance(VID, 'm4', {});
     assert(r.state === '\\', `expected \\, got ${r.state}`);
 });
 
-test('failed advance returns state \\ and triggers checkpoint restore', () => {
-    o.advance(VID, 'm2', {});
-    const r = o.advance(VID, 'm2', { success: false });
+await testAsync('failed advance returns state \\ and triggers checkpoint restore', async () => {
+    await o.advance(VID, 'm2', {});
+    const r = await o.advance(VID, 'm2', { success: false });
     assert(r.state === '\\', `expected \\, got ${r.state}`);
 });
 
@@ -91,14 +100,14 @@ test('summary() reports correct arrived/failed', () => {
 
 test('contextDump() is ≤120 chars and contains all milestones', () => {
     const d = o.contextDump(VID);
-    assert(d.length <= 120,          `too long: ${d.length}`);
-    assert(d.startsWith('VOYAGE:'),  'should start with VOYAGE:');
+    assert(d.length <= 120,         `too long: ${d.length}`);
+    assert(d.startsWith('VOYAGE:'), 'should start with VOYAGE:');
     assert(d.includes('m1') && d.includes('m4'), 'missing milestones');
     console.log(`     dump: ${d}`);
 });
 
-test('load() restores voyage in a fresh Odyssey instance', async () => {
-    const fresh  = new Odyssey();
+await testAsync('load() restores voyage in a fresh Odyssey instance', async () => {
+    const fresh  = new Odyssey({ voyagesDir: TEMP_VOYAGES });
     const loaded = await fresh.load(VID);
     assert(loaded !== null, 'load() returned null');
     assert(loaded.milestones.find(m => m.id === 'm1')?.status === STATUS.ARRIVED,

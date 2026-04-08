@@ -5,15 +5,16 @@
  * Uses Directed Acyclic Graphs (DAG) to ensure prerequisites are met.
  *
  * chart()  — AI-powered voyage generation (original)
- * Navigator methods — execution engine with full persistence (new)
+ * define() — manual voyage definition (no brain needed)
+ * Navigator methods — execution engine with full persistence
  */
 
-import fs   from 'fs';
-import path from 'path';
+import fs             from 'fs';
+import path           from 'path';
+import { Poseidon }   from './Poseidon.js';
 
-const VOYAGES_DIR = path.resolve(process.cwd(), 'voyages');
+const DEFAULT_VOYAGES_DIR = path.resolve(process.cwd(), 'voyages');
 
-// ── Milestone status lifecycle — strict, no skipping ──────────────────────
 export const STATUS = Object.freeze({
     DOCKED:  'docked',   // ⚓ exists, prereqs not met or not started
     SAILING: 'sailing',  // ⛵ actively executing
@@ -23,86 +24,23 @@ export const STATUS = Object.freeze({
 
 const EMOJI = { docked: '⚓', sailing: '⛵', arrived: '✓', failed: '⛔' };
 
-// ── Persistence helpers ────────────────────────────────────────────────────
-
-function voyageDir(voyageId)  { return path.join(VOYAGES_DIR, voyageId); }
-function voyageFile(voyageId) { return path.join(voyageDir(voyageId), 'voyage.json'); }
-function cpDir(voyageId)      { return path.join(voyageDir(voyageId), 'checkpoints'); }
-function logFile(voyageId)    { return path.join(voyageDir(voyageId), 'log.ndjson'); }
-
-function ensureDirs(voyageId) {
-    fs.mkdirSync(cpDir(voyageId), { recursive: true });
-}
-
-function saveVoyage(voyage) {
-    ensureDirs(voyage.voyageId);
-    const serialized = {
-        ...voyage,
-        milestones: voyage.milestones.map(({ _verify, ...rest }) => rest),
-    };
-    fs.writeFileSync(voyageFile(voyage.voyageId), JSON.stringify(serialized, null, 2));
-}
-
-function loadVoyageFromDisk(voyageId) {
-    const f = voyageFile(voyageId);
-    if (!fs.existsSync(f)) return null;
-    return JSON.parse(fs.readFileSync(f, 'utf8'));
-}
-
-function appendLog(voyageId, entry) {
-    ensureDirs(voyageId);
-    fs.appendFileSync(logFile(voyageId),
-        JSON.stringify({ ts: new Date().toISOString(), voyageId, ...entry }) + '\n');
-}
-
-function saveCheckpoint(voyageId, milestoneId, snapshot) {
-    const checkpointId = `${milestoneId}_${Date.now()}`;
-    const data = {
-        voyageId,
-        checkpointId,
-        timestamp:      new Date().toISOString(),
-        afterMilestone: milestoneId,
-        milestones:     snapshot.milestones,
-        context:        snapshot.context || {},
-    };
-    fs.writeFileSync(
-        path.join(cpDir(voyageId), `${checkpointId}.json`),
-        JSON.stringify(data, null, 2)
-    );
-    return checkpointId;
-}
-
-function restoreCheckpoint(voyageId) {
-    const dir   = cpDir(voyageId);
-    if (!fs.existsSync(dir)) return null;
-    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort();
-    if (!files.length) return null;
-    return JSON.parse(fs.readFileSync(path.join(dir, files[files.length - 1]), 'utf8'));
-}
-
-function listCheckpoints(voyageId) {
-    const dir = cpDir(voyageId);
-    if (!fs.existsSync(dir)) return [];
-    return fs.readdirSync(dir)
-        .filter(f => f.endsWith('.json'))
-        .map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')));
-}
-
-// ── Odyssey ────────────────────────────────────────────────────────────────
-
 export class Odyssey {
-    constructor() {
-        this.voyages = new Map();
+    /**
+     * @param {object} opts
+     * @param {string} [opts.voyagesDir] - override storage path (useful for tests)
+     */
+    constructor(opts = {}) {
+        this.voyages     = new Map();
+        this._voyagesDir = opts.voyagesDir
+            ? path.resolve(opts.voyagesDir)
+            : DEFAULT_VOYAGES_DIR;
+        this._poseidon   = new Poseidon(opts.poseidon || {});
     }
 
     // ── Original chart() — AI-powered voyage generation ───────────────────
 
     /**
      * Map the technical voyage using an LLM brain
-     * @param {object} brain - has .think(prompt, opts) method
-     * @param {string} goal
-     * @param {string} description
-     * @returns {object} voyage
      */
     async chart(brain, goal, description) {
         const prompt = `Chart a technical ODYSSEY for this goal.
@@ -125,8 +63,8 @@ Return ONLY JSON:
             const voyage  = JSON.parse(result.text.match(/\{[\s\S]*\}/)[0]);
             voyage.milestones = voyage.milestones.map(m => ({ ...m, status: STATUS.DOCKED }));
             this.voyages.set(voyage.voyageId, voyage);
-            saveVoyage(voyage);
-            appendLog(voyage.voyageId, { event: 'voyage.charted', title: voyage.title });
+            this._saveVoyage(voyage);
+            this._appendLog(voyage.voyageId, { event: 'voyage.charted', title: voyage.title });
             return voyage;
         } catch (err) {
             return { error: 'Charting failed', message: err.message };
@@ -135,13 +73,6 @@ Return ONLY JSON:
 
     // ── Navigator: define a voyage directly (no brain needed) ─────────────
 
-    /**
-     * Define a voyage manually as a DAG — no brain required
-     * @param {string} voyageId
-     * @param {string} title
-     * @param {Array}  milestones - [{ id, title, deps: [] }]
-     * @returns {object} voyage
-     */
     define(voyageId, title, milestones = []) {
         const voyage = {
             voyageId,
@@ -160,20 +91,15 @@ Return ONLY JSON:
             context: {},
         };
         this.voyages.set(voyageId, voyage);
-        saveVoyage(voyage);
-        appendLog(voyageId, { event: 'voyage.defined', title });
+        this._saveVoyage(voyage);
+        this._appendLog(voyageId, { event: 'voyage.defined', title });
         return voyage;
     }
 
     // ── Navigator: execution engine ────────────────────────────────────────
 
-    /**
-     * Get milestones that are unblocked: all deps arrived, status docked
-     * @param {string} voyageId
-     * @returns {Array}
-     */
     getUnblocked(voyageId) {
-        const voyage    = this._get(voyageId);
+        const voyage     = this._get(voyageId);
         const arrivedIds = new Set(
             voyage.milestones.filter(m => m.status === STATUS.ARRIVED).map(m => m.id)
         );
@@ -183,18 +109,7 @@ Return ONLY JSON:
         );
     }
 
-    /**
-     * Advance a milestone through its lifecycle.
-     * docked → sailing (call with no result)
-     * sailing → arrived (call with { success: true, output, verificationPassed: true })
-     * sailing → failed  (call with { success: false } or { verificationPassed: false })
-     *
-     * @param {string} voyageId
-     * @param {string} milestoneId
-     * @param {object} result
-     * @returns {{ state: string, value: any }}
-     */
-    advance(voyageId, milestoneId, result = {}) {
+    async advance(voyageId, milestoneId, result = {}) {
         const voyage    = this._get(voyageId);
         const milestone = this._getMilestone(voyage, milestoneId);
 
@@ -209,8 +124,8 @@ Return ONLY JSON:
             }
             milestone.status    = STATUS.SAILING;
             milestone.startedAt = new Date().toISOString();
-            appendLog(voyageId, { milestoneId, from: STATUS.DOCKED, to: STATUS.SAILING });
-            saveVoyage(voyage);
+            this._appendLog(voyageId, { milestoneId, from: STATUS.DOCKED, to: STATUS.SAILING });
+            this._saveVoyage(voyage);
             return { state: '|', value: { status: STATUS.SAILING } };
         }
 
@@ -220,64 +135,98 @@ Return ONLY JSON:
                 milestone.status   = STATUS.FAILED;
                 milestone.failedAt = new Date().toISOString();
                 milestone.output   = result.output || null;
-                appendLog(voyageId, { milestoneId, from: STATUS.SAILING, to: STATUS.FAILED });
-                saveVoyage(voyage);
-                const checkpoint = restoreCheckpoint(voyageId);
-                if (checkpoint) appendLog(voyageId, { event: 'checkpoint.restore', checkpointId: checkpoint.checkpointId });
+                this._appendLog(voyageId, { milestoneId, from: STATUS.SAILING, to: STATUS.FAILED });
+                this._saveVoyage(voyage);
+                const checkpoint = this._restoreCheckpoint(voyageId);
+                if (checkpoint) this._appendLog(voyageId, { event: 'checkpoint.restore', checkpointId: checkpoint.checkpointId });
                 return { state: '\\', value: { status: STATUS.FAILED, checkpoint } };
             }
 
-            if (result.verificationPassed === false) {
+            // Poseidon verification gate — TRUE requires a falsification test
+            const verification = await this._poseidon.verify(
+                `Milestone ${milestoneId} completed`,
+                {
+                    falsificationTest: result.falsificationTest || null,
+                    testResult:        result.verificationPassed !== false && result.verificationPassed !== undefined
+                        ? result.verificationPassed
+                        : result.falsificationTest ? result.verificationPassed : undefined,
+                }
+            );
+
+            if (verification.state === 'FALSE') {
                 milestone.status   = STATUS.FAILED;
                 milestone.failedAt = new Date().toISOString();
-                appendLog(voyageId, { milestoneId, from: STATUS.SAILING, to: STATUS.FAILED, reason: 'verification.failed' });
-                saveVoyage(voyage);
-                return { state: '\\', value: { status: STATUS.FAILED, reason: 'verification.failed' } };
+                this._appendLog(voyageId, { milestoneId, from: STATUS.SAILING, to: STATUS.FAILED, reason: verification.reason });
+                this._saveVoyage(voyage);
+                return { state: '\\', value: { status: STATUS.FAILED, reason: verification.reason, verification } };
             }
+
+            // UNCERTAIN = no falsification test provided — warn but allow through
+            // (allows milestones without explicit verification to still arrive)
+            const verificationState = verification.state;
 
             milestone.status    = STATUS.ARRIVED;
             milestone.arrivedAt = new Date().toISOString();
             milestone.output    = result.output || null;
-            appendLog(voyageId, { milestoneId, from: STATUS.SAILING, to: STATUS.ARRIVED });
-            saveVoyage(voyage);
+            this._appendLog(voyageId, { milestoneId, from: STATUS.SAILING, to: STATUS.ARRIVED });
+            this._saveVoyage(voyage);
 
-            const checkpointId = saveCheckpoint(voyageId, milestoneId, {
+            const checkpointId = this._saveCheckpoint(voyageId, milestoneId, {
                 milestones: voyage.milestones.map(m => ({ id: m.id, status: m.status, output: m.output })),
                 context:    voyage.context,
             });
-            appendLog(voyageId, { milestoneId, event: 'checkpoint.saved', checkpointId });
-            return { state: '/', value: { status: STATUS.ARRIVED, checkpointId } };
+            this._appendLog(voyageId, { milestoneId, event: 'checkpoint.saved', checkpointId });
+            return { state: verificationState === 'UNCERTAIN' ? '|' : '/', value: { status: STATUS.ARRIVED, checkpointId, verification } };
         }
 
         return { state: '\\', value: { error: `Cannot advance from status: ${milestone.status}` } };
     }
 
     /**
-     * Load a voyage from disk — resume exactly where it left off
-     * @param {string} voyageId
-     * @returns {object|null}
+     * Execute a milestone atomically — runs fn, verifies, advances state.
+     * Single call replaces the manual docked→sailing→arrived sequence.
+     *
+     * @param {string}   voyageId
+     * @param {string}   milestoneId
+     * @param {Function} fn - async () => { output, falsificationTest, testResult }
+     * @returns {{ state, value }}
      */
+    async execute(voyageId, milestoneId, fn) {
+        // docked → sailing
+        const sailResult = this.advance(voyageId, milestoneId, {});
+        if (sailResult.state === '\\') return sailResult;
+
+        // Run the work
+        let output, falsificationTest, testResult;
+        try {
+            const r        = await fn();
+            output            = r?.output ?? r;
+            falsificationTest = r?.falsificationTest ?? null;
+            testResult        = r?.testResult ?? true;
+        } catch (err) {
+            return this.advance(voyageId, milestoneId, { success: false, output: err.message });
+        }
+
+        // sailing → arrived (with Poseidon verification)
+        return this.advance(voyageId, milestoneId, {
+            success: true,
+            output,
+            falsificationTest,
+            verificationPassed: testResult,
+        });
+    }
+
     async load(voyageId) {
-        const saved = loadVoyageFromDisk(voyageId);
-        if (!saved) return null;
+        const f = this._voyageFile(voyageId);
+        if (!fs.existsSync(f)) return null;
+        const saved = JSON.parse(fs.readFileSync(f, 'utf8'));
         this.voyages.set(voyageId, saved);
-        appendLog(voyageId, { event: 'voyage.loaded' });
+        this._appendLog(voyageId, { event: 'voyage.loaded' });
         return saved;
     }
 
-    /**
-     * Persist current voyage state to disk
-     * @param {string} voyageId
-     */
-    async persist(voyageId) {
-        saveVoyage(this._get(voyageId));
-    }
+    async persist(voyageId) { this._saveVoyage(this._get(voyageId)); }
 
-    /**
-     * Human-readable status summary
-     * @param {string} voyageId
-     * @returns {object}
-     */
     summary(voyageId) {
         const voyage  = this._get(voyageId);
         const total   = voyage.milestones.length;
@@ -293,27 +242,72 @@ Return ONLY JSON:
         };
     }
 
-    /**
-     * Compact context dump — loads full voyage state in one line, under 120 chars
-     * Format: "VOYAGE:slug m1✓ m2⚓ m3⛵ m4⛔"
-     * @param {string} voyageId
-     * @returns {string}
-     */
     contextDump(voyageId) {
         const voyage = this._get(voyageId);
         const parts  = [`VOYAGE:${voyageId}`];
-        for (const m of voyage.milestones) {
-            parts.push(`${m.id}${EMOJI[m.status] || '?'}`);
-        }
+        for (const m of voyage.milestones) parts.push(`${m.id}${EMOJI[m.status] || '?'}`);
         return parts.join(' ');
     }
 
-    // ── Checkpoint API ─────────────────────────────────────────────────────
+    listCheckpoints(voyageId)   { return this._listCheckpoints(voyageId); }
+    restoreCheckpoint(voyageId) { return this._restoreCheckpoint(voyageId); }
 
-    listCheckpoints(voyageId)  { return listCheckpoints(voyageId); }
-    restoreCheckpoint(voyageId) { return restoreCheckpoint(voyageId); }
+    // ── Private persistence helpers ────────────────────────────────────────
 
-    // ── Internal ───────────────────────────────────────────────────────────
+    _vDir(voyageId)      { return path.join(this._voyagesDir, voyageId); }
+    _voyageFile(voyageId){ return path.join(this._vDir(voyageId), 'voyage.json'); }
+    _cpDir(voyageId)     { return path.join(this._vDir(voyageId), 'checkpoints'); }
+    _logFile(voyageId)   { return path.join(this._vDir(voyageId), 'log.ndjson'); }
+
+    _ensureDirs(voyageId) {
+        fs.mkdirSync(this._cpDir(voyageId), { recursive: true });
+    }
+
+    _saveVoyage(voyage) {
+        this._ensureDirs(voyage.voyageId);
+        const serialized = {
+            ...voyage,
+            milestones: voyage.milestones.map(({ _verify, ...rest }) => rest),
+        };
+        fs.writeFileSync(this._voyageFile(voyage.voyageId), JSON.stringify(serialized, null, 2));
+    }
+
+    _appendLog(voyageId, entry) {
+        this._ensureDirs(voyageId);
+        fs.appendFileSync(this._logFile(voyageId),
+            JSON.stringify({ ts: new Date().toISOString(), voyageId, ...entry }) + '\n');
+    }
+
+    _saveCheckpoint(voyageId, milestoneId, snapshot) {
+        const checkpointId = `${milestoneId}_${Date.now()}`;
+        fs.writeFileSync(
+            path.join(this._cpDir(voyageId), `${checkpointId}.json`),
+            JSON.stringify({
+                voyageId, checkpointId,
+                timestamp:      new Date().toISOString(),
+                afterMilestone: milestoneId,
+                milestones:     snapshot.milestones,
+                context:        snapshot.context || {},
+            }, null, 2)
+        );
+        return checkpointId;
+    }
+
+    _restoreCheckpoint(voyageId) {
+        const dir = this._cpDir(voyageId);
+        if (!fs.existsSync(dir)) return null;
+        const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort();
+        if (!files.length) return null;
+        return JSON.parse(fs.readFileSync(path.join(dir, files[files.length - 1]), 'utf8'));
+    }
+
+    _listCheckpoints(voyageId) {
+        const dir = this._cpDir(voyageId);
+        if (!fs.existsSync(dir)) return [];
+        return fs.readdirSync(dir)
+            .filter(f => f.endsWith('.json'))
+            .map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')));
+    }
 
     _get(voyageId) {
         const v = this.voyages.get(voyageId);

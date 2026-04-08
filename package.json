@@ -1,0 +1,22 @@
+{
+  "name": "poseidon-protocol",
+  "version": "0.2.0",
+  "description": "A nautical framework for autonomous systems engineering — ternary epistemic states, voyage DAGs, Nautical Notation",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./core/Poseidon": "./core/Poseidon.js",
+    "./core/Trident": "./core/Trident.js",
+    "./core/Odyssey": "./core/Odyssey.js",
+    "./core/NauticalParser": "./core/NauticalParser.js",
+    "./core/NauticalEncoder": "./core/NauticalEncoder.js",
+    "./core/RegistryLoader": "./core/RegistryLoader.js"
+  },
+  "scripts": {
+    "test": "node tests/odyssey.test.js && node tests/nautical.test.js && node tests/integration.test.js"
+  },
+  "keywords": ["ai", "ternary", "epistemic", "agents", "poseidon"],
+  "author": "Barry",
+  "license": "MIT"
+}
