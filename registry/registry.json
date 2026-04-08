@@ -1,0 +1,23 @@
+{
+  "version": "0.1",
+  "count": 17,
+  "tokens": [
+    { "id": 1,  "token": "!:.",  "domain": "EXECUTE",   "operation": "TYPED",   "target": "FLOW",   "modifier": "",  "alias": "execute.default",  "status": "active", "version": "0.1" },
+    { "id": 2,  "token": ".:!",  "domain": "FLOW",      "operation": "TYPE",    "target": "ACTION", "modifier": "",  "alias": "pipe.force",        "status": "active", "version": "0.1" },
+    { "id": 3,  "token": "::!",  "domain": "DECLARE",   "operation": "DECLARE", "target": "ACT",    "modifier": "",  "alias": "declare.new",       "status": "active", "version": "0.1" },
+    { "id": 4,  "token": ".!::", "domain": "FLOW",      "operation": "ACT",     "target": "TYPE",   "modifier": "TYPE", "alias": "output.struct",  "status": "active", "version": "0.1" },
+    { "id": 5,  "token": ".:!:", "domain": "FLOW",      "operation": "TYPE",    "target": "CONFIG", "modifier": "",  "alias": "set.config",        "status": "active", "version": "0.1" },
+    { "id": 6,  "token": "::!.", "domain": "DECLARE",   "operation": "ACT",     "target": "FLOW",   "modifier": "",  "alias": "define.object",     "status": "active", "version": "0.1" },
+    { "id": 7,  "token": "!:..", "domain": "EXECUTE",   "operation": "FLOW",    "target": "FLOW",   "modifier": "",  "alias": "execute.chain",     "status": "active", "version": "0.1" },
+    { "id": 8,  "token": ":.^",  "domain": "TYPE",      "operation": "FLOW",    "target": "MEMORY", "modifier": "^", "alias": "mem.save",          "status": "active", "version": "0.1" },
+    { "id": 9,  "token": "!.^",  "domain": "ACTION",    "operation": "FLOW",    "target": "MEMORY", "modifier": "^", "alias": "mem.load",          "status": "active", "version": "0.1" },
+    { "id": 10, "token": "!:>",  "domain": "ACTION",    "operation": "TYPE",    "target": "SCOPE",  "modifier": ">", "alias": "focus.scope",       "status": "active", "version": "0.1" },
+    { "id": 11, "token": ".:>",  "domain": "FLOW",      "operation": "TYPE",    "target": "SCOPE",  "modifier": ">", "alias": "pipe.scope",        "status": "active", "version": "0.1" },
+    { "id": 12, "token": "!::.", "domain": "ACTION",    "operation": "TYPE",    "target": "TYPE",   "modifier": "FLOW", "alias": "loop",           "status": "active", "version": "0.1" },
+    { "id": 13, "token": ".:!.", "domain": "FLOW",      "operation": "TYPE",    "target": "ACTION", "modifier": "FLOW", "alias": "repeat",         "status": "active", "version": "0.1" },
+    { "id": 14, "token": "~!",   "domain": "EXCEPTION", "operation": "FATAL",   "target": "",       "modifier": "",  "alias": "halt",             "status": "active", "version": "0.1" },
+    { "id": 15, "token": "~.",   "domain": "EXCEPTION", "operation": "RECOVER", "target": "",       "modifier": "",  "alias": "fallback",          "status": "active", "version": "0.1" },
+    { "id": 16, "token": "~:",   "domain": "EXCEPTION", "operation": "LOG",     "target": "",       "modifier": "",  "alias": "log.continue",      "status": "active", "version": "0.1" },
+    { "id": 17, "token": "*!:.", "domain": "PRIORITY",  "operation": "EXECUTE", "target": "TYPED",  "modifier": "FLOW", "alias": "urgent.execute", "status": "active", "version": "0.1" }
+  ]
+}
